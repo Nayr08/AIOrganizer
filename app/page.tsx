@@ -1,65 +1,185 @@
-import Image from "next/image";
+"use client";
+
+import { ArrowRight, Brain, Calendar, CheckCircle2, Clock, Sparkles } from "lucide-react";
+import Link from "next/link";
+import managementAnimation from "@/public/lottie/Data Management.json";
+import { FeatureCard, LottiePlayer } from "@/src/components";
+
+const featureCards = [
+  {
+    icon: <Brain className="h-[18px] w-[18px]" />,
+    title: "Natural Input",
+    description:
+      "Write the way you normally think and let the app separate events, dates, and categories.",
+    featured: true,
+    className: "landing-feature-span-2",
+  },
+  {
+    icon: <Calendar className="h-[18px] w-[18px]" />,
+    title: "Date Grouping",
+    description:
+      "Grouped schedules like April 19 and April 20 stay properly separated and readable.",
+  },
+  {
+    icon: <Clock className="h-[18px] w-[18px]" />,
+    title: "Time Ranges",
+    description:
+      "Single times and ranges such as 10 AM to 12 PM are preserved across organize and tasks.",
+  },
+  {
+    icon: <CheckCircle2 className="h-[18px] w-[18px]" />,
+    title: "Save Workflow",
+    description:
+      "Review AI output first, then save cleanly into your persistent task list.",
+  },
+  {
+    icon: <Sparkles className="h-[18px] w-[18px]" />,
+    title: "AI-Powered Organization",
+    description:
+      "Let the assistant turn rough text into polished, structured tasks without manual formatting.",
+  },
+];
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="landing-shell">
+      <svg
+        aria-hidden="true"
+        className="landing-noise"
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          pointerEvents: "none",
+          zIndex: 999,
+          opacity: 0.03,
+        }}
+      >
+        <filter id="noise">
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency="0.65"
+            numOctaves="3"
+            stitchTiles="stitch"
+          />
+          <feColorMatrix type="saturate" values="0" />
+        </filter>
+        <rect width="100%" height="100%" filter="url(#noise)" />
+      </svg>
+
+      <section className="landing-section landing-hero">
+        <div className="landing-container">
+          <div className="landing-hero-grid">
+            <div className="relative z-10">
+              <span className="landing-eyebrow">Personal Planning</span>
+
+              <h1 className="landing-hero-title mt-6">
+                Turn rough plans into structured tasks.
+              </h1>
+
+              <p className="landing-muted mt-6 max-w-[420px] text-[16px] leading-[1.7]">
+                AI Organizer now feels more like a focused assistant workspace:
+                calm dark surfaces, clear hierarchy, and task output that reads
+                like a clean conversation with your planner.
+              </p>
+
+              <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+                <Link href="/organize" className="landing-button-primary">
+                  Start Organizing
+                  <ArrowRight className="h-[16px] w-[16px]" />
+                </Link>
+                <Link href="/tasks" className="landing-button-secondary">
+                  Open Tasks
+                </Link>
+              </div>
+            </div>
+
+            <div className="landing-hero-animation">
+              <div className="landing-hero-floating-art">
+                <LottiePlayer
+                  animationData={managementAnimation}
+                  className="h-[220px] w-full sm:h-[280px] lg:h-[340px]"
+                />
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </section>
+
+      <section className="landing-section pb-6 pt-[60px] md:pt-[80px]">
+        <div className="landing-container">
+          <div className="landing-preview-section-grid">
+            <div className="landing-card landing-preview-card">
+              <p className="text-[11px] uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                Preview
+              </p>
+
+              <div className="landing-card-elevated mt-4 p-[12px_14px]">
+                <p className="text-[14px] text-[var(--text-secondary)]">
+                  April 19 8am church, 10 am to 12pm meeting, 2 pm meetup with bros, 4pm
+                  to 11pm work.
+                </p>
+              </div>
+
+              <div className="mt-4 grid gap-3">
+                <div className="landing-preview-pill">Church - 8:00 AM</div>
+                <div className="landing-preview-pill">Meeting - 10:00 AM - 12:00 PM</div>
+                <div className="landing-preview-pill">Meetup with bros - 2:00 PM</div>
+                <div className="landing-preview-pill">Work - 4:00 PM - 11:00 PM</div>
+              </div>
+            </div>
+
+            <div className="landing-card p-5">
+              <p className="text-[11px] uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                Why it works
+              </p>
+              <div className="mt-4 space-y-4">
+                <div className="landing-why-row">
+                  <span className="landing-why-dot" />
+                  <span>Natural language in</span>
+                </div>
+                <div className="landing-why-row">
+                  <span className="landing-why-dot" />
+                  <span>Structured schedule out</span>
+                </div>
+                <div className="landing-why-row">
+                  <span className="landing-why-dot" />
+                  <span>Save directly to your task list</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-      </main>
+      </section>
+
+      <section className="landing-section pb-20 pt-[60px] md:pt-[80px]">
+        <div className="landing-container">
+          <div className="max-w-[540px]">
+            <h2 className="text-[28px] font-medium text-[var(--text-primary)]">
+              Core features
+            </h2>
+            <p className="mt-3 text-[16px] text-[var(--text-secondary)]">
+              Clean task organization with a tone and layout that feels
+              familiar, calm, and readable.
+            </p>
+          </div>
+
+          <div className="landing-features-grid mt-10">
+            {featureCards.map((feature) => (
+              <FeatureCard
+                key={feature.title}
+                icon={feature.icon}
+                title={feature.title}
+                description={feature.description}
+                featured={feature.featured}
+                className={feature.className}
+              />
+            ))}
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

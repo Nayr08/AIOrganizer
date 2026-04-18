@@ -1,0 +1,22 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Task {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  date        DateTime
+  timeLabel   String?
+  startTime   String?
+  endTime     String?
+  category    String?
+  priority    String?
+  status      String   @default("pending")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

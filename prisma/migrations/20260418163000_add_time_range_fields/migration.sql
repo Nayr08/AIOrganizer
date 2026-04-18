@@ -1,0 +1,3 @@
+ALTER TABLE "Task"
+ADD COLUMN "startTime" TEXT,
+ADD COLUMN "endTime" TEXT;
