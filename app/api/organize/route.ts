@@ -614,33 +614,17 @@ export async function PUT(req: Request) {
     }
 
     const { prisma } = await import("@/src/lib/db");
-    const { Prisma } = await import("@prisma/client");
-    const taskModel = Prisma.dmmf.datamodel.models.find(
-      (model) => model.name === "Task"
-    );
-    const supportedFields = new Set(taskModel?.fields.map((field) => field.name) ?? []);
 
     const created = await prisma.task.createMany({
       data: tasks.map((task: RawTaskInput) => {
         const normalized = normalizeTask(task, getDateKeyInTimezone(new Date()));
-        const data: {
-          title: string;
-          description: string | null;
-          date: Date;
-          timeLabel: string | null;
-          category: string;
-          priority: string;
-          status: string;
-          startTime?: string | null;
-          endTime?: string | null;
-          isRecurring?: boolean;
-          frequency?: string | null;
-          recurringDay?: string | null;
-        } = {
+        return {
           title: normalized.title,
           description: normalized.description || null,
           date: new Date(`${normalized.date}T00:00:00`),
           timeLabel: normalized.timeLabel || null,
+          startTime: normalized.startTime || null,
+          endTime: normalized.endTime || null,
           category: normalized.category,
           priority: normalized.priority,
           status: String(task.status ?? "pending"),
@@ -648,16 +632,6 @@ export async function PUT(req: Request) {
           frequency: normalized.frequency || null,
           recurringDay: normalized.recurringDay || null,
         };
-
-        if (supportedFields.has("startTime")) {
-          data.startTime = normalized.startTime || null;
-        }
-
-        if (supportedFields.has("endTime")) {
-          data.endTime = normalized.endTime || null;
-        }
-
-        return data;
       }),
     });
 
