@@ -212,8 +212,13 @@ function TodayDashboard() {
   const [todayTasks, setTodayTasks] = useState<Task[]>([]);
   const [upcomingTasks, setUpcomingTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dashboardNow, setDashboardNow] = useState<Date | null>(null);
 
   useEffect(() => {
+    const nowTimeoutId = window.setTimeout(() => {
+      setDashboardNow(new Date());
+    }, 0);
+
     const loadTasks = async () => {
       try {
         const [todayResponse, upcomingResponse] = await Promise.all([
@@ -232,14 +237,18 @@ function TodayDashboard() {
     };
 
     void loadTasks();
+
+    return () => window.clearTimeout(nowTimeoutId);
   }, []);
 
   const greeting = useMemo(() => {
-    const hour = new Date().getHours();
+    if (!dashboardNow) return "Welcome back";
+
+    const hour = dashboardNow.getHours();
     if (hour < 12) return "Good morning";
     if (hour < 18) return "Good afternoon";
     return "Good evening";
-  }, []);
+  }, [dashboardNow]);
 
   const nextTask = todayTasks.find((task) => {
     const start = parseTaskStart(task);
@@ -260,7 +269,7 @@ function TodayDashboard() {
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-[12px] uppercase tracking-[0.08em] text-[var(--text-muted)]">
-              {format(new Date(), "EEEE, MMMM d")}
+              {dashboardNow ? format(dashboardNow, "EEEE, MMMM d") : "Today"}
             </p>
             <h1
               className="mt-2 text-[clamp(2.2rem,5vw,3.3rem)] font-semibold leading-[1.08] text-[var(--text-primary)]"
