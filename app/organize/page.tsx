@@ -12,7 +12,12 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { LoadingState, TaskCard } from "@/src/components";
+import { useRouter } from "next/navigation";
+import {
+  LoadingState,
+  RecurringBadge,
+  StyledDatePicker,
+} from "@/src/components";
 import type { Task } from "@/src/components/TaskCard";
 import {
   APP_TIMEZONE,
@@ -48,13 +53,24 @@ const EXAMPLE_PROMPTS = [
 type OrganizedTaskResponse = Partial<
   Pick<
     Task,
-    "title" | "date" | "time" | "startTime" | "endTime" | "description" | "category" | "priority"
+    | "title"
+    | "date"
+    | "time"
+    | "startTime"
+    | "endTime"
+    | "description"
+    | "category"
+    | "priority"
+    | "isRecurring"
+    | "frequency"
+    | "recurringDay"
   >
 > & {
   timeLabel?: string;
 };
 
 type OrganizeMode = "replace" | "append";
+type OrganizeStep = "input" | "review" | "saving";
 type VoiceState = "idle" | "recording" | "done";
 
 type TranscriptSegment = {
@@ -134,13 +150,32 @@ function splitTranscriptIntoSegments(text: string, uncertain: boolean) {
     }));
 }
 
+function createBlankReviewTask(): Task {
+  return {
+    id: crypto.randomUUID(),
+    title: "",
+    date: getDateKeyInTimezone(),
+    startTime: "",
+    endTime: "",
+    description: "",
+    category: "General",
+    priority: "medium",
+    status: "pending",
+    isRecurring: false,
+    frequency: null,
+    recurringDay: null,
+  };
+}
+
 export default function OrganizePage() {
+  const router = useRouter();
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [showResults, setShowResults] = useState(false);
+  const [step, setStep] = useState<OrganizeStep>("input");
   const [error, setError] = useState("");
+  const [originalText, setOriginalText] = useState("");
   const [dateLabel, setDateLabel] = useState(() =>
     formatDateWithMonthName(getDateKeyInTimezone())
   );
@@ -394,14 +429,18 @@ export default function OrganizePage() {
       category: task.category || "General",
       priority: (task.priority?.toLowerCase() as Task["priority"]) || "medium",
       status: "pending" as const,
+      isRecurring: task.isRecurring ?? false,
+      frequency: task.frequency ?? null,
+      recurringDay: task.recurringDay ?? null,
     }));
 
   const handleOrganize = async () => {
     if (!input.trim()) return;
 
     setLoading(true);
-    setShowResults(true);
+    setStep("review");
     setError("");
+    setOriginalText(input);
 
     try {
       const minimumLoadingDelay = new Promise((resolve) => {
@@ -450,25 +489,27 @@ export default function OrganizePage() {
     if (tasks.length === 0) return;
 
     setSaving(true);
+    setStep("saving");
     setError("");
 
     try {
-      const response = await fetch("/api/organize", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tasks }),
-      });
-
-      const data = await parseApiResponse(response);
-
-      if (!response.ok) {
-        throw new Error(data.details || data.error || "Failed to save tasks");
-      }
+      await Promise.all(
+        tasks.map((task) =>
+          fetch("/api/tasks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(task),
+          }).then((response) => {
+            if (!response.ok) {
+              throw new Error("Failed to save task");
+            }
+          })
+        )
+      );
 
       setInput("");
       setTasks([]);
-      setShowResults(false);
-      alert("Tasks saved successfully!");
+      router.push(`/tasks?saved=${tasks.length}`);
     } catch (saveError) {
       const errorMessage =
         saveError instanceof Error ? saveError.message : "Failed to save tasks";
@@ -491,6 +532,12 @@ export default function OrganizePage() {
     );
   };
 
+  const updateReviewTask = (id: string, updates: Partial<Task>) => {
+    setTasks((currentTasks) =>
+      currentTasks.map((task) => (task.id === id ? { ...task, ...updates } : task))
+    );
+  };
+
   const handleAddMoreChoice = (mode: OrganizeMode) => {
     setAddMoreModalOpen(false);
     setOrganizeMode(mode);
@@ -498,7 +545,14 @@ export default function OrganizePage() {
       setTasks([]);
     }
     setInput("");
-    setShowResults(false);
+    setStep("input");
+    setError("");
+  };
+
+  const handleReorganize = () => {
+    setInput(originalText);
+    setTasks([]);
+    setStep("input");
     setError("");
   };
 
@@ -552,7 +606,7 @@ export default function OrganizePage() {
       />
 
       <div className="relative mx-auto w-full max-w-[760px] px-8 py-10 max-sm:px-6">
-        {!showResults ? (
+        {step === "input" ? (
           <div className="space-y-8">
             <div className="space-y-3 pt-4">
               <h1
@@ -753,7 +807,7 @@ export default function OrganizePage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowResults(true)}
+                    onClick={() => setStep("review")}
                     className="inline-flex items-center justify-center rounded-[8px] border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.06)] px-[18px] py-[10px] text-[13px] text-[var(--text-primary)] transition-all duration-200 hover:bg-[rgba(255,255,255,0.10)]"
                   >
                     Review Draft
@@ -806,14 +860,23 @@ export default function OrganizePage() {
                   {tasks.length} {tasks.length === 1 ? "task" : "tasks"} ready to save
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setAddMoreModalOpen(true)}
-                className="inline-flex items-center justify-center gap-2 rounded-[8px] border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.06)] px-[18px] py-[10px] text-[13px] text-[var(--text-primary)] transition-all duration-200 hover:bg-[rgba(255,255,255,0.10)]"
-              >
-                <Plus className="h-4 w-4 text-[var(--accent)]" />
-                Add More Tasks
-              </button>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={handleReorganize}
+                  className="inline-flex items-center justify-center rounded-[8px] border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.06)] px-[18px] py-[10px] text-[13px] text-[var(--text-primary)] transition-all duration-200 hover:bg-[rgba(255,255,255,0.10)]"
+                >
+                  Re-organize
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAddMoreModalOpen(true)}
+                  className="inline-flex items-center justify-center gap-2 rounded-[8px] border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.06)] px-[18px] py-[10px] text-[13px] text-[var(--text-primary)] transition-all duration-200 hover:bg-[rgba(255,255,255,0.10)]"
+                >
+                  <Plus className="h-4 w-4 text-[var(--accent)]" />
+                  Add More Tasks
+                </button>
+              </div>
             </div>
 
             {error && (
@@ -822,7 +885,7 @@ export default function OrganizePage() {
               </div>
             )}
 
-            {loading ? (
+            {loading || step === "saving" ? (
               <LoadingState />
             ) : tasks.length === 0 ? (
               <div className="rounded-[16px] border border-[var(--border)] bg-[var(--bg-surface)] px-6 py-12 text-center text-[var(--text-secondary)]">
@@ -831,15 +894,103 @@ export default function OrganizePage() {
             ) : (
               <div className="space-y-4">
                 {tasks.map((task) => (
-                  <TaskCard
+                  <div
                     key={task.id}
-                    task={task}
-                    onDelete={handleDeleteTask}
-                    editableNotes
-                    onDescriptionChange={handleDescriptionChange}
-                    showStatusActions={false}
-                  />
+                    className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-surface)] px-5 py-4"
+                  >
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <input
+                          value={task.title}
+                          onChange={(event) =>
+                            updateReviewTask(task.id, {
+                              title: event.target.value,
+                            })
+                          }
+                          className="w-full bg-transparent text-lg font-medium text-[var(--text-primary)] outline-none"
+                          placeholder="Task title"
+                        />
+                        <RecurringBadge
+                          isRecurring={task.isRecurring}
+                          frequency={task.frequency}
+                          recurringDay={task.recurringDay}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTask(task.id)}
+                        className="rounded-[8px] border border-white/10 bg-white/5 p-2 text-white/50 transition-colors hover:border-red-500/20 hover:text-red-300"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <StyledDatePicker
+                        value={task.date}
+                        onChange={(value) =>
+                          updateReviewTask(task.id, { date: value })
+                        }
+                        placeholder="Task date"
+                        className="w-full rounded-[10px] bg-[var(--bg-elevated)] shadow-none"
+                        inputClassName="w-full text-sm"
+                      />
+                      <input
+                        type="time"
+                        value={task.startTime || ""}
+                        onChange={(event) =>
+                          updateReviewTask(task.id, {
+                            startTime: event.target.value,
+                          })
+                        }
+                        className="rounded-[10px] border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-[10px] text-sm text-[var(--text-primary)] outline-none focus:border-[rgba(79,142,247,0.30)]"
+                      />
+                      <input
+                        value={task.category || ""}
+                        onChange={(event) =>
+                          updateReviewTask(task.id, {
+                            category: event.target.value,
+                          })
+                        }
+                        className="rounded-[10px] border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-[10px] text-sm text-[var(--text-primary)] outline-none focus:border-[rgba(79,142,247,0.30)]"
+                        placeholder="Category"
+                      />
+                      <select
+                        value={task.priority}
+                        onChange={(event) =>
+                          updateReviewTask(task.id, {
+                            priority: event.target.value as Task["priority"],
+                          })
+                        }
+                        className="rounded-[10px] border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-[10px] text-sm text-[var(--text-primary)] outline-none focus:border-[rgba(79,142,247,0.30)]"
+                      >
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </div>
+                    <textarea
+                      value={task.description ?? ""}
+                      onChange={(event) =>
+                        handleDescriptionChange(task.id, event.target.value)
+                      }
+                      placeholder="Add or refine notes for this task."
+                      className="mt-3 min-h-24 w-full rounded-[12px] border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-3 text-sm leading-6 text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] transition-colors duration-200 focus:border-[rgba(79,142,247,0.30)] focus:outline-none"
+                    />
+                  </div>
                 ))}
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setTasks((currentTasks) => [
+                      ...currentTasks,
+                      createBlankReviewTask(),
+                    ])
+                  }
+                  className="w-full rounded-[12px] border border-dashed border-[rgba(79,142,247,0.25)] bg-[rgba(79,142,247,0.06)] px-4 py-3 text-sm text-[var(--accent)] transition-all hover:bg-[rgba(79,142,247,0.10)]"
+                >
+                  Add task
+                </button>
 
                 <div className="sticky bottom-20 rounded-[16px] border border-[var(--border)] bg-[rgba(17,17,16,0.92)] p-3 backdrop-blur md:bottom-6">
                   <button

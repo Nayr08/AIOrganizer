@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, CheckSquare, ChevronDown, Clock3, Plus, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { addMinutes, format } from "date-fns";
+import { CheckSquare, ChevronDown, Clock3, Plus, X } from "lucide-react";
 import Link from "next/link";
-import { EmptyState, TaskCard } from "@/src/components";
+import {
+  EmptyTaskState,
+  StyledDatePicker,
+  TaskCard,
+  UndoToast,
+} from "@/src/components";
 import type { Task } from "@/src/components/TaskCard";
 import {
   APP_TIMEZONE,
@@ -28,6 +34,9 @@ interface DBTask {
   category?: string | null;
   priority?: string | null;
   status: string;
+  isRecurring?: boolean;
+  frequency?: string | null;
+  recurringDay?: string | null;
   createdAt: Date | string;
   updatedAt: Date | string;
 }
@@ -132,12 +141,16 @@ export default function TasksPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
-  const [remindersEnabled, setRemindersEnabled] = useState(
+  const reminderTimeouts = useRef<number[]>([]);
+  const [remindersOn, setRemindersOn] = useState(
     () =>
       typeof window !== "undefined" &&
-      "Notification" in window &&
-      Notification.permission === "granted"
+      window.localStorage.getItem("reminders") === "true"
   );
+  const [notifError, setNotifError] = useState("");
+  const [savedToast, setSavedToast] = useState("");
+  const [deletedTask, setDeletedTask] = useState<Task | null>(null);
+  const [undoVisible, setUndoVisible] = useState(false);
   const [missedOpen, setMissedOpen] = useState(false);
   const [rescheduleTask, setRescheduleTask] = useState<Task | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState("");
@@ -166,6 +179,9 @@ export default function TasksPage() {
           category: dbTask.category || undefined,
           priority: (dbTask.priority?.toLowerCase() || "medium") as Task["priority"],
           status: (dbTask.status || "pending") as Task["status"],
+          isRecurring: dbTask.isRecurring,
+          frequency: dbTask.frequency,
+          recurringDay: dbTask.recurringDay,
         }))
         .sort((left: Task, right: Task) => {
           const dateDiff = compareDateKeys(left.date, right.date);
@@ -197,6 +213,30 @@ export default function TasksPage() {
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const saved = params.get("saved");
+
+    if (!saved) {
+      return;
+    }
+
+    params.delete("saved");
+    const nextUrl = `${window.location.pathname}${
+      params.toString() ? `?${params.toString()}` : ""
+    }`;
+    window.history.replaceState(null, "", nextUrl);
+    const showTimeoutId = window.setTimeout(() => {
+      setSavedToast(`${saved} tasks saved`);
+    }, 0);
+    const hideTimeoutId = window.setTimeout(() => setSavedToast(""), 3000);
+
+    return () => {
+      window.clearTimeout(showTimeoutId);
+      window.clearTimeout(hideTimeoutId);
+    };
   }, []);
 
   useEffect(() => {
@@ -236,70 +276,88 @@ export default function TasksPage() {
     void markMissed();
   }, [tasks]);
 
-  useEffect(() => {
-    if (!remindersEnabled || typeof window === "undefined") {
+  const scheduleNotifications = useCallback((nextTasks: Task[]) => {
+    reminderTimeouts.current.forEach(clearTimeout);
+    reminderTimeouts.current = [];
+
+    if (typeof window === "undefined" || !("Notification" in window)) {
       return;
     }
 
-    const maybeNotify = () => {
-      const todayKey = getDateKeyInTimezone();
-      const tomorrowKey = addDaysToDateKey(todayKey, 1);
-      const nowMinutes = getNowMinutesInTimezone();
+    const now = new Date();
 
-      tasks
-        .filter(
-          (task) =>
-            task.status !== "completed" &&
-            task.status !== "missed" &&
-            task.status !== "skipped"
-        )
-        .forEach((task) => {
-          if (task.date !== todayKey && task.date !== tomorrowKey) {
-            return;
-          }
+    nextTasks
+      .filter((task) => task.status === "pending" && task.startTime)
+      .forEach((task) => {
+        const taskDate = format(new Date(`${task.date}T00:00:00`), "yyyy-MM-dd");
+        const normalizedTime = task.startTime?.replace(/\s+/g, " ") ?? "";
+        const taskDateTime = new Date(`${taskDate} ${normalizedTime}`);
 
-          const startMinutes = timeLabelToMinutes(task.startTime || task.time);
-          if (startMinutes === null) {
-            return;
-          }
+        if (Number.isNaN(taskDateTime.getTime())) {
+          return;
+        }
 
-          const minutesUntilStart =
-            task.date === todayKey
-              ? startMinutes - nowMinutes
-              : 24 * 60 - nowMinutes + startMinutes;
+        const reminderTime = addMinutes(taskDateTime, -15);
+        const msUntilReminder = reminderTime.getTime() - now.getTime();
+        const msUntilStart = taskDateTime.getTime() - now.getTime();
 
-          const reminderKeyBase = `ai-organizer-reminder:${task.id}:${task.date}:${startMinutes}`;
+        if (msUntilReminder > 0) {
+          const timeoutId = window.setTimeout(() => {
+            new Notification("AI Organizer", {
+              body: `${task.title} starts in 15 minutes`,
+              tag: `reminder-${task.id}`,
+            });
+          }, msUntilReminder);
+          reminderTimeouts.current.push(timeoutId);
+        }
 
-          if (minutesUntilStart <= 0 && minutesUntilStart >= -5) {
-            if (!window.localStorage.getItem(`${reminderKeyBase}:start`)) {
-              new Notification("Task starting now", {
-                body: `${task.title} starts at ${task.startTime || task.time}.`,
-              });
-              window.localStorage.setItem(`${reminderKeyBase}:start`, "sent");
-            }
-          } else if (minutesUntilStart <= -30 && minutesUntilStart >= -35) {
-            if (!window.localStorage.getItem(`${reminderKeyBase}:30`)) {
-              new Notification("Task still pending", {
-                body: `${task.title} is now 30 minutes overdue.`,
-              });
-              window.localStorage.setItem(`${reminderKeyBase}:30`, "sent");
-            }
-          } else if (minutesUntilStart <= -120 && minutesUntilStart >= -125) {
-            if (!window.localStorage.getItem(`${reminderKeyBase}:120`)) {
-              new Notification("Task needs attention", {
-                body: `${task.title} is now 2 hours overdue.`,
-              });
-              window.localStorage.setItem(`${reminderKeyBase}:120`, "sent");
-            }
-          }
-        });
+        if (msUntilStart > 0) {
+          const timeoutId = window.setTimeout(() => {
+            new Notification("AI Organizer", {
+              body: `${task.title} is starting now`,
+              tag: `start-${task.id}`,
+              requireInteraction: true,
+            });
+          }, msUntilStart);
+          reminderTimeouts.current.push(timeoutId);
+        }
+      });
+  }, []);
+
+  useEffect(() => {
+    if (remindersOn && tasks.length > 0) {
+      scheduleNotifications(tasks);
+    }
+
+    return () => {
+      reminderTimeouts.current.forEach(clearTimeout);
+      reminderTimeouts.current = [];
     };
+  }, [remindersOn, scheduleNotifications, tasks]);
 
-    maybeNotify();
-    const intervalId = window.setInterval(maybeNotify, 60_000);
+  const enableReminders = async () => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      setNotifError("Notifications are not supported in this browser.");
+      return;
+    }
 
-    return () => window.clearInterval(intervalId);
-  }, [remindersEnabled, tasks]);
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      setRemindersOn(true);
+      window.localStorage.setItem("reminders", "true");
+      setNotifError("");
+      scheduleNotifications(tasks);
+    } else {
+      setNotifError("Enable notifications in your browser settings.");
+    }
+  };
+
+  const disableReminders = () => {
+    setRemindersOn(false);
+    window.localStorage.setItem("reminders", "false");
+    reminderTimeouts.current.forEach(clearTimeout);
+    reminderTimeouts.current = [];
+  };
 
   const filteredTasks = useMemo(() => {
     let nextTasks = tasks;
@@ -368,6 +426,17 @@ export default function TasksPage() {
 
   const handleStatusChange = async (id: string, nextStatus: Task["status"]) => {
     try {
+      if (nextStatus === "completed") {
+        const response = await fetch(`/api/tasks/${id}/complete`, {
+          method: "POST",
+        });
+        if (!response.ok) {
+          throw new Error("Failed to complete task");
+        }
+        await fetchTasks();
+        return;
+      }
+
       await handleTaskPatch(id, { status: nextStatus });
       setTasks((currentTasks) =>
         currentTasks.map((task) =>
@@ -380,22 +449,44 @@ export default function TasksPage() {
     }
   };
 
-  const handleDeleteTask = async (id: string) => {
+  const handleDeleteTask = (id: string) => {
+    setTasks((currentTasks) => currentTasks.filter((task) => task.id !== id));
+  };
+
+  const showUndoToast = (task: Task) => {
+    setDeletedTask(task);
+    setUndoVisible(true);
+  };
+
+  const handleUndoDelete = async (task: Task) => {
     try {
       const response = await fetch("/api/tasks", {
-        method: "DELETE",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({
+          title: task.title,
+          date: task.date,
+          startTime: task.startTime,
+          endTime: task.endTime,
+          priority: task.priority,
+          category: task.category,
+          description: task.description,
+          isRecurring: task.isRecurring,
+          frequency: task.frequency || undefined,
+          recurringDay: task.recurringDay || undefined,
+        }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to delete task");
+        throw new Error("Failed to restore task");
       }
 
-      setTasks((currentTasks) => currentTasks.filter((task) => task.id !== id));
+      setUndoVisible(false);
+      setDeletedTask(null);
+      await fetchTasks();
     } catch (err) {
-      console.error("Error deleting task:", err);
-      setError("Failed to delete task");
+      console.error("Error restoring task:", err);
+      setError("Failed to restore task");
     }
   };
 
@@ -490,21 +581,6 @@ export default function TasksPage() {
     { label: "DONE", value: completedCount, filterValue: "completed" as FilterType },
   ];
 
-  const enableReminders = async () => {
-    if (typeof window === "undefined" || !("Notification" in window)) {
-      setError("This browser does not support notifications.");
-      return;
-    }
-
-    const permission = await Notification.requestPermission();
-    setRemindersEnabled(permission === "granted");
-    if (permission !== "granted") {
-      setError("Notifications were not allowed.");
-    } else {
-      setError("");
-    }
-  };
-
   return (
     <div className="relative min-h-screen overflow-hidden bg-[var(--bg-base)]">
       <div
@@ -539,10 +615,14 @@ export default function TasksPage() {
             <div className="flex flex-col gap-2 sm:flex-row">
               <button
                 type="button"
-                onClick={enableReminders}
-                className="inline-flex items-center justify-center rounded-[8px] border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.06)] px-4 py-[10px] text-[13px] text-[var(--text-primary)] backdrop-blur-[4px] transition-all duration-200 hover:bg-[rgba(255,255,255,0.10)]"
+                onClick={remindersOn ? disableReminders : enableReminders}
+                className={`inline-flex items-center justify-center rounded-[8px] border px-4 py-[10px] text-[13px] backdrop-blur-[4px] transition-all duration-200 hover:bg-[rgba(255,255,255,0.10)] ${
+                  remindersOn
+                    ? "border-green-500/25 bg-green-500/10 text-green-400"
+                    : "border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.06)] text-[var(--text-primary)]"
+                }`}
               >
-                {remindersEnabled ? "Reminders On" : "Enable Reminders"}
+                {remindersOn ? "Reminders On ✓" : "Reminders On"}
               </button>
               <Link href="/organize">
                 <button
@@ -554,6 +634,9 @@ export default function TasksPage() {
                 </button>
               </Link>
             </div>
+            {notifError && (
+              <p className="mt-1 text-xs text-red-400">{notifError}</p>
+            )}
           </div>
         </div>
 
@@ -587,15 +670,12 @@ export default function TasksPage() {
         </div>
 
         <div className="mb-6 flex flex-col items-stretch gap-2 sm:flex-row sm:justify-end">
-          <label className="group inline-flex items-center gap-2 rounded-[8px] border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.06)] px-3 py-[10px] text-[13px] text-[var(--text-primary)] shadow-[0_10px_30px_rgba(0,0,0,0.12)] backdrop-blur-[4px] transition-all duration-300 ease-out hover:-translate-y-0.5 hover:border-[rgba(79,142,247,0.35)] hover:bg-[rgba(255,255,255,0.09)] hover:shadow-[0_14px_36px_rgba(79,142,247,0.10)] focus-within:-translate-y-0.5 focus-within:border-[rgba(79,142,247,0.45)] focus-within:bg-[rgba(255,255,255,0.10)]">
-            <CalendarDays className="h-4 w-4 text-[var(--accent)] transition-transform duration-300 ease-out group-hover:scale-110 group-focus-within:scale-110" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(event) => setSelectedDate(event.target.value)}
-              className="bg-transparent text-[13px] text-[var(--text-primary)] outline-none transition-colors duration-300 ease-out"
-            />
-          </label>
+          <StyledDatePicker
+            value={selectedDate}
+            onChange={setSelectedDate}
+            placeholder="Filter by date"
+            inputClassName="w-[128px]"
+          />
           {selectedDate && (
             <button
               type="button"
@@ -635,6 +715,12 @@ export default function TasksPage() {
           </div>
         )}
 
+        {savedToast && (
+          <div className="mb-6 rounded-[14px] border border-green-500/20 bg-green-500/10 px-4 py-3 text-sm text-green-300">
+            {savedToast}
+          </div>
+        )}
+
         {loading && (
           <div className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-surface)] px-6 py-12 text-center">
             <div className="inline-flex flex-col items-center gap-4">
@@ -647,13 +733,8 @@ export default function TasksPage() {
         )}
 
         {!loading && filteredTasks.length === 0 ? (
-          <EmptyState
-            title={filter === "all" ? "No tasks yet" : `No ${filter} tasks`}
-            description={
-              filter === "all"
-                ? "Start organizing to create your first task"
-                : `You have no ${filter} tasks right now.`
-            }
+          <EmptyTaskState
+            filter={filter === "in_progress" ? "active" : filter}
           />
         ) : !loading ? (
           <div>
@@ -682,6 +763,9 @@ export default function TasksPage() {
                         overdue={isTaskOverdue(task)}
                         onStatusChange={handleStatusChange}
                         onDelete={handleDeleteTask}
+                        onTaskDeleted={handleDeleteTask}
+                        onTaskUpdated={fetchTasks}
+                        showUndoToast={showUndoToast}
                         onReschedule={openRescheduleModal}
                       />
                     ))}
@@ -713,6 +797,9 @@ export default function TasksPage() {
                         task={task}
                         onStatusChange={handleStatusChange}
                         onDelete={handleDeleteTask}
+                        onTaskDeleted={handleDeleteTask}
+                        onTaskUpdated={fetchTasks}
+                        showUndoToast={showUndoToast}
                         onReschedule={openRescheduleModal}
                       />
                     ))}
@@ -751,11 +838,12 @@ export default function TasksPage() {
             <div className="space-y-4">
               <label className="block text-[13px] text-[var(--text-secondary)]">
                 <span className="mb-2 block">New date</span>
-                <input
-                  type="date"
+                <StyledDatePicker
                   value={rescheduleDate}
-                  onChange={(event) => setRescheduleDate(event.target.value)}
-                  className="w-full rounded-[10px] border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-[10px] text-[var(--text-primary)] outline-none focus:border-[rgba(79,142,247,0.30)]"
+                  onChange={setRescheduleDate}
+                  placeholder="New date"
+                  className="w-full rounded-[10px] bg-[var(--bg-elevated)] shadow-none"
+                  inputClassName="w-full text-[var(--text-primary)]"
                 />
               </label>
 
@@ -803,6 +891,12 @@ export default function TasksPage() {
           </div>
         </div>
       )}
+      <UndoToast
+        task={deletedTask}
+        visible={undoVisible}
+        onDismiss={() => setUndoVisible(false)}
+        onUndo={handleUndoDelete}
+      />
     </div>
   );
 }

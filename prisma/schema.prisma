@@ -17,6 +17,10 @@ model Task {
   category    String?
   priority    String?
   status      String   @default("pending")
+  isRecurring Boolean  @default(false)
+  frequency   String?
+  recurringDay String?
+  parentTaskId String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

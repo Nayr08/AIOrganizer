@@ -118,3 +118,38 @@ export function formatDateWithMonthName(value: string | Date) {
 
   return longDateFormatter.format(parsed);
 }
+
+export function getNextOccurrence(
+  date: Date,
+  frequency: string,
+  recurringDay?: string | null
+) {
+  const next = new Date(date);
+
+  if (frequency === "daily") {
+    next.setDate(next.getDate() + 1);
+  } else if (frequency === "weekly") {
+    next.setDate(next.getDate() + 7);
+  } else if (frequency === "monthly") {
+    next.setMonth(next.getMonth() + 1);
+  }
+
+  if (frequency === "weekly" && recurringDay) {
+    const weekdayIndex = [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ].findIndex((day) => day.toLowerCase() === recurringDay.toLowerCase());
+
+    if (weekdayIndex >= 0) {
+      const delta = (weekdayIndex - next.getDay() + 7) % 7;
+      next.setDate(next.getDate() + delta);
+    }
+  }
+
+  return next;
+}

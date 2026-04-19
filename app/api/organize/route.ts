@@ -18,6 +18,9 @@ type OrganizedTask = {
   category: string;
   priority: TaskPriority;
   description: string;
+  isRecurring: boolean;
+  frequency?: "daily" | "weekly" | "monthly";
+  recurringDay?: string | null;
 };
 
 type RawTaskInput = Partial<OrganizedTask> & {
@@ -222,6 +225,47 @@ function generateTaskDescription(task: {
   return knownByCategory[task.category] ?? "Planned item for your schedule.";
 }
 
+function inferRecurring(value: string): Pick<
+  OrganizedTask,
+  "isRecurring" | "frequency" | "recurringDay"
+> {
+  const haystack = value.toLowerCase();
+  const weekdays = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  const weekday = weekdays.find((day) =>
+    haystack.includes(`every ${day.toLowerCase()}`)
+  );
+
+  if (
+    haystack.includes("every day") ||
+    haystack.includes("daily") ||
+    haystack.includes("every morning")
+  ) {
+    return { isRecurring: true, frequency: "daily", recurringDay: null };
+  }
+
+  if (weekday || haystack.includes("every week") || haystack.includes("weekly")) {
+    return {
+      isRecurring: true,
+      frequency: "weekly",
+      recurringDay: weekday || null,
+    };
+  }
+
+  if (haystack.includes("monthly") || haystack.includes("every month")) {
+    return { isRecurring: true, frequency: "monthly", recurringDay: null };
+  }
+
+  return { isRecurring: false, frequency: undefined, recurringDay: null };
+}
+
 function normalizeTask(task: RawTaskInput, fallbackDate: string): OrganizedTask {
   const startTime = normalizeTimeValue(task.startTime ?? task.time ?? task.timeLabel);
   const endTime = normalizeTimeValue(task.endTime);
@@ -238,6 +282,18 @@ function normalizeTask(task: RawTaskInput, fallbackDate: string): OrganizedTask 
     normalizedPriority === "medium"
       ? normalizedPriority
       : "medium";
+  const recurring = task.isRecurring
+    ? {
+        isRecurring: true,
+        frequency:
+          task.frequency === "daily" ||
+          task.frequency === "weekly" ||
+          task.frequency === "monthly"
+            ? task.frequency
+            : inferRecurring(`${title} ${description}`).frequency,
+        recurringDay: task.recurringDay ?? null,
+      }
+    : inferRecurring(`${title} ${description}`);
 
   return {
     title,
@@ -248,6 +304,9 @@ function normalizeTask(task: RawTaskInput, fallbackDate: string): OrganizedTask 
     category,
     priority,
     description: description || generateTaskDescription({ title, category, startTime, endTime }),
+    isRecurring: recurring.isRecurring,
+    frequency: recurring.frequency,
+    recurringDay: recurring.recurringDay ?? null,
   };
 }
 
@@ -494,7 +553,7 @@ You are an AI organizer. Convert the user's schedule into structured JSON.
 
 Rules:
 - Return ONLY a valid JSON array.
-- Each item must have: title, date, startTime, endTime, category, priority, description.
+- Each item must have: title, date, startTime, endTime, category, priority, description, isRecurring, frequency, recurringDay.
 - date must be YYYY-MM-DD.
 - startTime and endTime must be in HH:MM AM/PM format or an empty string.
 - Understand English, Tagalog, Bisaya, and mixed-language inputs.
@@ -506,6 +565,8 @@ Rules:
 - Respect grouped dates like "April 19 ..." and "April 20 ...".
 - Choose a practical category such as Work, Travel, Social, Spiritual, Health, Shopping, Finance, School, Sports, or Personal.
 - Priority must be one of low, medium, or high.
+- If the user mentions "every day", "daily", "every week", "every [weekday]", "weekly", "monthly", "every morning", or any recurring pattern, include in that task's JSON: {"isRecurring": true, "frequency": "daily" | "weekly" | "monthly", "recurringDay": "Monday" | "Tuesday" | ... | null}.
+- For non-recurring tasks: "isRecurring": false, "frequency": null, and "recurringDay": null.
 - Resolve relative dates using timezone ${APP_TIMEZONE}.
 - Use ${fallbackDate} if a date is missing.
 - Do not include markdown fences or explanations.
@@ -572,6 +633,9 @@ export async function PUT(req: Request) {
           status: string;
           startTime?: string | null;
           endTime?: string | null;
+          isRecurring?: boolean;
+          frequency?: string | null;
+          recurringDay?: string | null;
         } = {
           title: normalized.title,
           description: normalized.description || null,
@@ -580,6 +644,9 @@ export async function PUT(req: Request) {
           category: normalized.category,
           priority: normalized.priority,
           status: String(task.status ?? "pending"),
+          isRecurring: normalized.isRecurring,
+          frequency: normalized.frequency || null,
+          recurringDay: normalized.recurringDay || null,
         };
 
         if (supportedFields.has("startTime")) {
